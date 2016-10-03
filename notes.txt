@@ -1,0 +1,11 @@
+Step 1 - Build the App Shell
+	The app shell is the set of core components that
+		need to be on the screen immediately
+		are key to the app
+		are resources needed for the app shell
+	In the case of this weather app, key comoponents
+		the header with title add/refresh buttons
+		container for forecast cards
+		forecast card template
+		dialog box for adding new cities
+		loading indicator
