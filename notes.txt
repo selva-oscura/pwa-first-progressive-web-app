@@ -9,3 +9,73 @@ Step 1 - Build the App Shell
 		forecast card template
 		dialog box for adding new cities
 		loading indicator
+	Google Recommends use of Web Starter Kit for starting a new project
+		https://developers.google.com/web/tools/starter-kit/
+
+
+*	uncommented the link from index.html to scripts/app.js 
+		<script src="scripts/app.js" async></script>
+	and the updateForecastCard call in app.js
+		app.updateForecastCard(initialWeatherForecast);
+
+Step 2 - Start with a fast first Load
+	Differentiating the first run
+	user preferences (in this case the list of cities a user has subscribed to) shoule be stored locally using IndexedDB or other fast storage mechanism 
+
+*	this app uses localStorage for simplicity 
+	Extra credit replace localStorage Implementation with idb
+		see links at https://codelabs.developers.google.com/codelabs/your-first-pwapp/index.html#4
+		idb documentation at npm https://www.npmjs.com/package/idb
+		localForage as wrapper to idb info at http://mozilla.github.io/localForage/
+*	add code for saveSelectedCities
+	  // Save list of cities to localStorage.
+	  app.saveSelectedCities = function() {
+	    var selectedCities = JSON.stringify(app.selectedCities);
+	    localStorage.selectedCities = selectedCities;
+	  };
+*	retrieve selected cities, retrieve the data for those cities, and update the cards
+	/************************************************************************
+	   *
+	   * Code required to start the app
+	   *
+	   * NOTE: To simplify this codelab, we've used localStorage.
+	   *   localStorage is a synchronous API and has serious performance
+	   *   implications. It should not be used in production applications!
+	   *   Instead, check out IDB (https://www.npmjs.com/package/idb) or
+	   *   SimpleDB (https://gist.github.com/inexorabletash/c8069c042b734519680c)
+	   ************************************************************************/
+
+	  app.selectedCities = localStorage.selectedCities;
+	  if (app.selectedCities) {
+	    app.selectedCities = JSON.parse(app.selectedCities);
+	    app.selectedCities.forEach(function(city) {
+	      app.getForecast(city.key, city.label);
+	    });
+	  } else {
+	    /* The user is using the app for the first time, or the user has not
+	     * saved any cities, so show the user some fake data. A real app in this
+	     * scenario could guess the user's location via IP lookup and then inject
+	     * that data into the page.
+	     */
+	    app.updateForecastCard(initialWeatherForecast);
+	    app.selectedCities = [
+	      {key: initialWeatherForecast.key, label: initialWeatherForecast.label}
+	    ];
+	    app.saveSelectedCities();
+	  }
+* Save the selected Cities -- add the event Listener for the 'add city' button
+	document.getElementById('butAddCity').addEventListener('click', function() {
+	    // Add the newly selected city
+	    var select = document.getElementById('selectCityToAdd');
+	    var selected = select.options[select.selectedIndex];
+	    var key = selected.value;
+	    var label = selected.textContent;
+	    if (!app.selectedCities) {
+	      app.selectedCities = [];
+	    }
+	    app.getForecast(key, label);
+	    app.selectedCities.push({key: key, label: label});
+	    app.saveSelectedCities();
+	    app.toggleAddDialog(false);
+	  });
+
