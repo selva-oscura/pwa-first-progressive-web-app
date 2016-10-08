@@ -48,12 +48,15 @@
     // Add the newly selected city
     var select = document.getElementById('selectCityToAdd');
     var selected = select.options[select.selectedIndex];
+    console.log('51 - selected', selected)
     var key = selected.value;
     var label = selected.textContent;
     // TODO init the app.selectedCities array here
+    console.log('app.selectedCities from inside butAddCity', app.selectedCities);
     if(!app.selectedCities){
       app.selectedCities=[];
     }
+    console.log('58 - selectedCities', app.selectedCities)
     app.getForecast(key, label);
     // TODO push the selected city to the array and save here
     app.selectedCities.push({key: key, label: label});
@@ -221,8 +224,25 @@
 
   // TODO add saveSelectedCities function here
   app.saveSelectedCities = function(){
+    console.log('in saveSelectedCities');
     var selectedCities = JSON.stringify(app.selectedCities);
-    localStorage.selectedCities = selectedCities;
+    // localStorage.selectedCities = selectedCities;
+    console.log('in app.saveSelectedCities', selectedCities)
+    localforage.setItem('selectedCities', selectedCities).then(function(data){
+      console.log('data', data)
+    }).catch(function(err){
+      console.log("err", err);
+    })
+    // localforage.setItem('selectedCities', selectedCities, function(err, res){
+    //   console.log('in localForage.setItem callback')
+    //   if(err){
+    //     console.log('err in setting selected cities in indexedDB via localforage', err)
+    //   }
+    //   if(res){
+    //     console.log('res in setting selected cities in indexedDB via localforage', res)
+    //     return res;
+    //   }
+    // });
   }
 
 
@@ -344,13 +364,27 @@
    *   Instead, check out IDB (https://www.npmjs.com/package/idb) or
    *   SimpleDB (https://gist.github.com/inexorabletash/c8069c042b734519680c)
    ************************************************************************/
-   app.selectedCities = localStorage.selectedCities;
-   if(app.selectedCities){
-    app.selectedCities = JSON.parse(app.selectedCities);
-    app.selectedCities.forEach(function(city){
-      app.getForecast(city.key, city.label)
-    });
-   }
+   // app.selectedCities = localStorage.selectedCities;
+   app.selectedCities = localforage.getItem('selectedCities').then(function(data){
+    console.log('after the then', data);
+      if(data){
+        console.log('data', data);
+        return data;
+      }else{      
+        localforage.setItem('selectedCities', []).then(function(data){
+          console.log('data', data);
+          console.log('hopefully set to []')
+        })
+        console.log('should be returning', []);
+        return [];
+      }
+   }).then(function(data){
+      console.log('380 data', data);
+      if(data){      
+        data.forEach(function(city){
+          app.getForecast(city.key, city.label);
+        })    
+      }
     /* The user is using the app for the first time, or the user has not
      * saved any cities, so show the user some fake data. A real app in this
      * scenario could guess the user's location via IP lookup and then inject
@@ -361,6 +395,19 @@
       {key: initialWeatherForecast.key, label:initialWeatherForecast.label}
      ];
      app.saveSelectedCities;
+   })
+   // console.log('374',app.selecteCities);
+   // if(app.selectedCities){
+   //  // try{
+   //  //   app.selectedCities = JSON.parse(app.selectedCities);
+   //  // } catch(e) {
+   //    app.selectedCities = app.selectedCities;
+   //  // }
+   //  console.log('375', app.selectedCities)
+   //  app.selectedCities.forEach(function(city){
+   //    app.getForecast(city.key, city.label)
+   //  });
+   // }
 
   // TODO add service worker code here
   if('serviceWorker' in navigator){
