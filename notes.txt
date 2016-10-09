@@ -79,3 +79,250 @@ Step 2 - Start with a fast first Load
 	    app.toggleAddDialog(false);
 	  });
 
+Step 3 - service workers to pre-cache the app shell -- register the service worker (if available) in the app and then make it responsible for caching assets, fetching data, etc.
+	service workers are a progressive enhancement and should only be added if supported by the browser (and by the website, since they are only available on pages accessed via HTTPS...or localhost)
+* 	add service worker
+ 	note: it checks first if serviceWorker if supported by browser, 	then provides the code
+	in app.js
+	  if ('serviceWorker' in navigator) {
+	    navigator.serviceWorker
+	             .register('./service-worker.js')
+	             .then(function() { console.log('Service Worker Registered'); });
+	  }
+* 	cache site assets
+	(NOTE: The code below must NOT be used in production, it covers only the most basic use cases and it's easy to get yourself into a state where your app shell will never update. Be sure to review the section below that discusses the pitfalls of this implementation and how to avoid them.)
+		var cacheName = 'weatherPWA-step-6-1';
+		var filesToCache = [];
+
+		self.addEventListener('install', function(e) {
+		  console.log('[ServiceWorker] Install');
+		  e.waitUntil(
+		    caches.open(cacheName).then(function(cache) {
+		      console.log('[ServiceWorker] Caching app shell');
+		      return cache.addAll(filesToCache);
+		    })
+		  );
+		});
+
+* 	second service worker to update cache whenever any of the appshell files change
+	(Note: the last statement fixes a corner-case caused by initial data being stored because the service worker was not yet activated)
+		self.addEventListener('activate', function(e){
+			console.log('[ServiceWorker] Activate');
+			e.waitUntil(
+				caches.keys().then(function(keyList){
+					return Promise.all(keyList.map(function(key){
+						if(key!==cacheName){
+							console.log('ServiceWorker] Removing old cache', key);
+							return caches.delete(key);
+						}
+					}));
+				})
+			);
+			return self.clients.claim();
+		});
+
+* 	expanded var filesToCache from the initial [] to 
+		var filesToCache = [
+		  '/',
+		  '/index.html',
+		  '/scripts/app.js',
+		  '/styles/inline.css',
+		  '/images/clear.png',
+		  '/images/cloudy-scattered-showers.png',
+		  '/images/cloudy.png',
+		  '/images/fog.png',
+		  '/images/ic_add_white_24px.svg',
+		  '/images/ic_refresh_white_24px.svg',
+		  '/images/partly-cloudy.png',
+		  '/images/rain.png',
+		  '/images/scattered-showers.png',
+		  '/images/sleet.png',
+		  '/images/snow.png',
+		  '/images/thunderstorm.png',
+		  '/images/wind.png'
+		];
+	^---- This tells the service worker what files to watch
+
+*	Serve the app shell from the cache
+	Service workers provide the ability to intercept requests made from our Progressive Web App and handle them within the service worker. That means we can determine how we want to handle the request and potentially serve our own cached response.
+		self.addEventListener('fetch', function(e){
+			console.log('[ServiceWorker] Fetch', e.request.url);
+			e.respondWith(
+				caches.match(e.request).then(function(response){
+					return response || fetch(e.request);
+				})
+			);
+		});
+
+
+This code must not be used in production because of the many unhandled edge cases. The problems with the above code for cache-ing:
+
+	Cache depends on updating the cache key for every change
+		For example this caching method requires you to update the cache key every time content is changed, otherwise, the cache will not be updated, and the old content will be served. So be sure to change the cache key with every change as you're working on your project!
+
+	Requires everything to be redownloaded for every change
+		Another downside is that the entire cache is invalidated and needs to be re-downloaded every time a file changes. That means fixing a simple single character spelling mistake will invalidate the cache and require everything to be downloaded again. Not exactly efficient.
+
+	Browser cache may prevent the service worker cache from updating
+		There's another important caveat here. It's crucial that the HTTPS request made during the install handler goes directly to the network and doesn't return a response from the browser's cache. Otherwise the browser may return the old, cached version, resulting in the service worker cache never actually updating!
+
+	Beware of cache-first strategies in production
+		Our app uses a cache-first strategy, which results in a copy of any cached content being returned without consulting the network. While a cache-first strategy is easy to implement, it can cause challenges in the future. Once the copy of the host page and service worker registration is cached, it can be extremely difficult to change the configuration of the service worker (since the configuration depends on where it was defined), and you could find yourself deploying sites that are extremely difficult to update!
+
+	How do I avoid these edge cases?
+		So how do we avoid these edge cases? Use a library like sw-precache (https://github.com/GoogleChrome/sw-precache), which provides fine control over what gets expired, ensures requests go directly to the network and handles all of the hard work for you.
+
+Step 4 - Intercept the network request and cache the response
+	add a dataCacheName so that we can separate our applications data from the app shell. When the app shell is updated and older caches are purged, our data will remain untouched, ready for a super fast load. Keep in mind, if your data format changes in the future, you'll need a way to handle that and ensure the app shell and content stay in sync.
+* 	add intercept of request
+	check if url starts with address of the weather API, in which case a fetch is done to get fresh data and then cache is opened, the data cloned into it for storage, and the data passed on to the requester
+		self.addEventListener('fetch', function(e){
+			console.log('[ServiceWorker] Fetch', e.request.url);
+			var dataUrl = 'https://query.yahooapis.com/v1/public/yql';
+			if(e.request.url.indexOf(dataUrl) >-1){
+		    /*
+		     * When the request URL contains dataUrl, the app is asking for fresh
+		     * weather data. In this case, the service worker always goes to the
+		     * network and then caches the response. This is called the "Cache then
+		     * network" strategy:
+		     * https://jakearchibald.com/2014/offline-cookbook/#cache-then-network
+		     */
+		     e.respondWith(
+		     	caches.open(dataCacheName).then(function(cache){
+		     		return fetch(e.request).then(function(response){
+		     			cache.put(e.request.url, response.clone());
+		     			return response;
+		     		});
+		     	})
+		     );
+			}else{
+			    /*
+			     * The app is asking for app shell files. In this scenario the app uses the
+			     * "Cache, falling back to the network" offline strategy:
+			     * https://jakearchibald.com/2014/offline-cookbook/#cache-falling-back-to-network
+			     */
+				e.respondWith(
+					caches.match(e.request).then(function(response){
+						return response || fetch(e.request);
+					})
+				);
+			}
+		});
+
+	(Still doesn't quite work well offline because we've implemented caching and retrieval for app shell and cached the weather data, but it doesn't actually *check* the cache for the weather data)
+
+* 	Making the requests
+	As mentioned previously, the app needs to kick off two asynchronous requests, one to the cache and one to the network. The app uses the cache object available in window to access the cache and retrieve the latest data => perfect example of progressive enhancement as the cache object may not be available in all browsers, and if it's not the network request should still work.
+
+*	To do this, we need to:
+		1 - Check if the caches object is available in the global window object.
+		2 - Request data from the cache.
+			If the server request is still outstanding, update the app with the cached data.
+		3 - Request data from the server.
+			Save the data for quick access later.
+			Update the app with the fresh data from the server.
+		Get data from the cache
+		Next, we need to check if the caches object exists and request the latest data from it. Find the TODO add cache logic here comment in app.getForecast(), and then add the code below under the comment.
+*	And adding cache logic (scripts/app.js)
+	  app.getForecast = function(key, label) {
+	    var statement = 'select * from weather.forecast where woeid=' + key;
+	    var url = 'https://query.yahooapis.com/v1/public/yql?format=json&q=' +
+	        statement;
+	    // TODO add cache logic here
+	    if('caches' in window){
+	      /*
+	       * Check if the service worker has already cached this city's weather
+	       * data. If the service worker has the data, then display the cached
+	       * data while the app fetches the latest data.
+	       */
+	       caches.match(url).then(function(response){
+	        if(response){
+	          response.json().then(function updateFromCache(json){
+	            var results = json.query.results;
+	            results.key = key;
+	            results.label = label;
+	            results.created = json.query.created;
+	            app.updateForecastCard(results);
+	          });
+	        }
+	       });
+	    }
+*	app.updateForecastCard   <-- checks lastUpdated data
+	    // Verifies the data provide is newer than what's already visible
+	    // on the card, if it's not bail, if it is, continue and update the
+	    // time saved in the card
+	    var cardLastUpdatedElem = card.querySelector('.card-last-updated');
+	    var cardLastUpdated = cardLastUpdatedElem.textContent;
+	    if (cardLastUpdated) {
+	      cardLastUpdated = new Date(cardLastUpdated);
+	      // Bail if the card has more recent data then the data
+	      if (dataLastUpdated.getTime() < cardLastUpdated.getTime()) {
+	        return;
+	      }
+	    }
+*	To see this cacheing of files, 
+	DevTools --> Application --> Cache --> Cache Storage (shows cached files)
+*	To see Service Workers, 
+	DevTools --> Application --> Application --> Service Workers
+*	To see 'subscribed' cities, 
+	DevTools --> Application --> Storage --> Local Storage (though should actually use indexedDB)
+
+Step 5 - Support Native Integration (add to home screen feature)
+	Web App Install Banners and Add to Homescreen for Chrome on Android
+	manifest.json used 
+	(Chrome uses a set of criteria, including the use of a service worker, SSL status and visit frequency heuristics to determine when to show the banner. In addition a user can manually add it via the "Add to Home Screen" menu button in Chrome.)
+* 	create manifest.json in root
+	contents of file:	
+		{
+		  "name": "Weather",
+		  "short_name": "Weather",
+		  "icons": [{
+		    "src": "images/icons/icon-128x128.png",
+		      "sizes": "128x128",
+		      "type": "image/png"
+		    }, {
+		      "src": "images/icons/icon-144x144.png",
+		      "sizes": "144x144",
+		      "type": "image/png"
+		    }, {
+		      "src": "images/icons/icon-152x152.png",
+		      "sizes": "152x152",
+		      "type": "image/png"
+		    }, {
+		      "src": "images/icons/icon-192x192.png",
+		      "sizes": "192x192",		<-- smallest size currently supported
+		      "type": "image/png"
+		    }, {
+		      "src": "images/icons/icon-256x256.png",
+		      "sizes": "256x256",
+		      "type": "image/png"
+		    }],
+		  "start_url": "/index.html",   <-- track how app is launched to add a query string to the start_url paramenter and then use an analytics suite to track the query string.  (If this method is used, the list of files cached by the App Shell should include the file with the query string)
+		  "display": "standalone",
+		  "background_color": "#3E4EB8",
+		  "theme_color": "#2F3BA2"
+		}
+* 	tell browser about manifest file (in head if index.html)
+		<link rel="manifest" href="/manifest.json">
+
+*	Best Practices for manifests: 
+	* Place the manifest link on all your site's pages, so it will be retrieved by Chrome when the user first visits, no matter what page they land on.
+	* Short_name is preferred on Chrome and will be used if present over the name field.
+	* Define icon sets for different density screens. Chrome will attempt to use the icon closest to 48dp, for example, 96px on a 2x device or 144px for a 3x device.
+	* Include an icon with a size that is sensible for a splash screen and don't forget to set the background_color.
+	* For More on this, see 
+		https://developers.google.com/web/fundamentals/engage-and-retain/simplified-app-installs/
+
+* 	Add to Homescreen elements for Safari on iOS 
+	in head in index.html
+		<!-- Add to home screen for Safari on iOS -->
+		<meta name="apple-mobile-web-app-capable" content="yes">
+		<meta name="apple-mobile-web-app-status-bar-style" content="black">
+		<meta name="apple-mobile-web-app-title" content="Weather PWA">
+		<link rel="apple-touch-icon" href="images/icons/icon-152x152.png">
+* 	Add Tile Icon for Windows
+	in head in index.html
+		<!-- Add Tile Icon for Windows -->
+		<meta name="msapplication-TileImage" content="images/icons/icon-144x144.png">
+		<meta name="msapplication-TileColor" content="#2F3BA2">
+	
